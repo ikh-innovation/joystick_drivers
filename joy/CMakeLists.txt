@@ -20,7 +20,8 @@ endif()
 if(HAVE_LINUX_JOYSTICK_H)
   include_directories(msg/cpp ${catkin_INCLUDE_DIRS})
   add_executable(joy_node src/joy_node.cpp)
-  target_link_libraries(joy_node ${catkin_LIBRARIES})
+  target_include_directories(joy_node PRIVATE /usr/include/dbus-1.0 /usr/lib/x86_64-linux-gnu/dbus-1.0/include)
+  target_link_libraries(joy_node ${catkin_LIBRARIES} dbus-1)
 
 # Install targets
   install(TARGETS joy_node
