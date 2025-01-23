@@ -42,6 +42,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <dbus/dbus.h>
+
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Joy.h>
@@ -67,6 +69,7 @@ private:
   std::string joy_dev_;
   std::string joy_dev_name_;
   std::string joy_dev_ff_;
+  std::string bt_dev_name_;
   double deadzone_;
   double autorepeat_rate_;    // in Hz.  0 for no repeat.
   double coalesce_interval_;  // Defaults to 100 Hz rate limit.
@@ -296,6 +299,140 @@ public:
     }
   }
 
+  std::map<std::string, std::string> get_managed_objects(DBusConnection* conn) 
+  {
+    DBusMessage* msg;
+    DBusMessage* reply;
+    DBusMessageIter args;
+    DBusError err;
+    std::map<std::string, std::string> devices;
+
+    dbus_error_init(&err);
+
+    msg = dbus_message_new_method_call("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
+    if (!msg) 
+    {
+      std::cerr << "Message Null" << std::endl;
+      return devices;
+    }
+
+    reply = dbus_connection_send_with_reply_and_block(conn, msg, -1, &err);
+    dbus_message_unref(msg);
+
+    if (dbus_error_is_set(&err)) 
+    {
+      std::cerr << "Error: " << err.message << std::endl;
+      dbus_error_free(&err);
+      return devices;
+    }
+
+    if (!dbus_message_iter_init(reply, &args)) 
+    {
+      std::cerr << "Reply has no arguments!" << std::endl;
+      dbus_message_unref(reply);
+      return devices;
+    }
+
+    if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_ARRAY) 
+    {
+      std::cerr << "Argument is not an array!" << std::endl;
+      dbus_message_unref(reply);
+      return devices;
+    }
+    
+    DBusMessageIter dict;
+    dbus_message_iter_recurse(&args, &dict);
+
+    while (dbus_message_iter_get_arg_type(&dict) != DBUS_TYPE_INVALID) 
+    {
+      DBusMessageIter entry;
+      dbus_message_iter_recurse(&dict, &entry);
+
+      const char* path;
+      dbus_message_iter_get_basic(&entry, &path);
+
+      DBusMessageIter iface;
+      dbus_message_iter_next(&entry);
+      dbus_message_iter_recurse(&entry, &iface);
+
+      while (dbus_message_iter_get_arg_type(&iface) != DBUS_TYPE_INVALID) 
+      {
+        DBusMessageIter iface_entry;
+        dbus_message_iter_recurse(&iface, &iface_entry);
+
+        const char* iface_name;
+        dbus_message_iter_get_basic(&iface_entry, &iface_name);
+
+        if (std::string(iface_name) == "org.bluez.Device1") 
+        {
+          devices[path] = iface_name;
+        }
+
+        dbus_message_iter_next(&iface);
+      }
+
+      dbus_message_iter_next(&dict);
+    }
+
+    dbus_message_unref(reply);
+    return devices;
+  }
+
+  std::string get_device_property(DBusConnection* conn, const std::string& device_path, const std::string& property) 
+  {
+    DBusMessage* msg;
+    DBusMessage* reply;
+    DBusMessageIter args;
+    DBusError err;
+    std::string value;
+
+    dbus_error_init(&err);
+
+    msg = dbus_message_new_method_call("org.bluez", device_path.c_str(), "org.freedesktop.DBus.Properties", "Get");
+    if (!msg) 
+    {
+      std::cerr << "Message Null" << std::endl;
+      return "";
+    }
+
+    const char* iface = "org.bluez.Device1";
+    const char* prop = property.c_str();
+    dbus_message_append_args(msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_STRING, &prop, DBUS_TYPE_INVALID);
+    reply = dbus_connection_send_with_reply_and_block(conn, msg, -1, &err);
+    dbus_message_unref(msg);
+
+    if (dbus_error_is_set(&err)) 
+    {
+      std::cerr << "Error: " << err.message << std::endl;
+      dbus_error_free(&err);
+      return "";
+    }
+    
+    if (!dbus_message_iter_init(reply, &args)) 
+    {
+      std::cerr << "Reply has no arguments!" << std::endl;
+      dbus_message_unref(reply);
+      return "";
+    }
+
+    DBusMessageIter variant;
+    dbus_message_iter_recurse(&args, &variant);
+
+    if (dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_STRING) 
+    {
+      const char* prop_value;
+      dbus_message_iter_get_basic(&variant, &prop_value);
+      value = prop_value;
+    } else if (dbus_message_iter_get_arg_type(&variant) == DBUS_TYPE_BOOLEAN) 
+    {
+      dbus_bool_t prop_value;
+      dbus_message_iter_get_basic(&variant, &prop_value);
+      value = prop_value ? "true" : "false";
+    }
+    dbus_message_unref(reply);
+    return value;
+  }
+
   /// \brief Opens joystick port, reads from port and publishes while node is active
   int main(int argc, char **argv)
   {
@@ -309,11 +446,15 @@ public:
     nh_param.param<std::string>("dev", joy_dev_, "/dev/input/js0");
     nh_param.param<std::string>("dev_ff", joy_dev_ff_, "/dev/input/event0");
     nh_param.param<std::string>("dev_name", joy_dev_name_, "");
+    nh_param.param<std::string>("bt_dev_name", bt_dev_name_, "");
     nh_param.param<double>("deadzone", deadzone_, 0.05);
     nh_param.param<double>("autorepeat_rate", autorepeat_rate_, 0);
     nh_param.param<double>("coalesce_interval", coalesce_interval_, 0.001);
     nh_param.param<bool>("default_trig_val", default_trig_val_, false);
     nh_param.param<bool>("sticky_buttons", sticky_buttons_, false);
+
+    DBusConnection* conn;
+    DBusError err;
 
     // Checks on parameters
     if (!joy_dev_name_.empty())
@@ -465,6 +606,27 @@ public:
       open_ = true;
       diagnostic_.force_update();
 
+      dbus_error_init(&err);
+      conn = dbus_bus_get(DBUS_BUS_SYSTEM, &err);
+
+      if (dbus_error_is_set(&err)) 
+      {
+        ROS_ERROR_STREAM("Dbus Connection Error: " << err.message);
+        dbus_error_free(&err);
+        bt_dev_name_ = "";
+      }
+
+      if (!conn) 
+      {
+        ROS_ERROR("Dbus Connection is Null");
+        bt_dev_name_ = "";
+      }
+
+      std::map<std::string, std::string> devices;
+      bool target_connected{false};
+      std::string device_name;
+      std::string device_connected;
+
       bool tv_set = false;
       bool publication_pending = false;
       tv.tv_sec = 1;
@@ -474,6 +636,33 @@ public:
       while (nh_.ok())
       {
         ros::spinOnce();
+
+        if(!bt_dev_name_.empty())
+        {
+          devices = get_managed_objects(conn);
+          target_connected = false;
+
+          for (const auto& device : devices) 
+          {
+            device_name = get_device_property(conn, device.first, "Name");
+            if (!bt_dev_name_.compare(device_name))
+            {
+              device_connected = get_device_property(conn, device.first, "Connected");
+              if(device_connected == "true")
+              {
+                target_connected = true;
+                break;
+              }
+            }
+          }
+
+          if (!target_connected) 
+          {
+            ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
+            continue;
+          }
+         
+        }
 
         bool publish_now = false;
         bool publish_soon = false;
