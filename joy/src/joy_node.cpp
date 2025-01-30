@@ -73,6 +73,7 @@ private:
   double deadzone_;
   double autorepeat_rate_;    // in Hz.  0 for no repeat.
   double coalesce_interval_;  // Defaults to 100 Hz rate limit.
+  double bt_check_rate_; // in Hz.  0 for no check.
   int event_count_;
   int pub_count_;
   ros::Publisher pub_;
@@ -450,6 +451,7 @@ public:
     nh_param.param<double>("deadzone", deadzone_, 0.05);
     nh_param.param<double>("autorepeat_rate", autorepeat_rate_, 0);
     nh_param.param<double>("coalesce_interval", coalesce_interval_, 0.001);
+    nh_param.param<double>("bt_check_rate", bt_check_rate_, 0);
     nh_param.param<bool>("default_trig_val", default_trig_val_, false);
     nh_param.param<bool>("sticky_buttons", sticky_buttons_, false);
 
@@ -626,6 +628,12 @@ public:
       bool target_connected{false};
       std::string device_name;
       std::string device_connected;
+      ros::Duration bt_check_interval;
+      ros::Time last_bt_check_time = ros::Time::now();
+      if (bt_check_rate_ > 0)
+      {
+        bt_check_interval = ros::Duration(1.0 / bt_check_rate_);
+      }
 
       bool tv_set = false;
       bool publication_pending = false;
@@ -637,31 +645,34 @@ public:
       {
         ros::spinOnce();
 
-        if(!bt_dev_name_.empty())
+        if (!bt_dev_name_.empty() && bt_check_rate_ > 0)
         {
-          devices = get_managed_objects(conn);
-          target_connected = false;
-
-          for (const auto& device : devices) 
+          if (ros::Time::now() - last_bt_check_time >= bt_check_interval)
           {
-            device_name = get_device_property(conn, device.first, "Name");
-            if (!bt_dev_name_.compare(device_name))
+            last_bt_check_time = ros::Time::now();
+            devices = get_managed_objects(conn);
+            target_connected = false;
+
+            for (const auto& device : devices) 
             {
-              device_connected = get_device_property(conn, device.first, "Connected");
-              if(device_connected == "true")
+              device_name = get_device_property(conn, device.first, "Name");
+              if (!bt_dev_name_.compare(device_name))
               {
-                target_connected = true;
-                break;
+                device_connected = get_device_property(conn, device.first, "Connected");
+                if(device_connected == "true")
+                {
+                  target_connected = true;
+                  break;
+                }
               }
             }
-          }
 
-          if (!target_connected) 
-          {
-            ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
-            continue;
+            if (!target_connected) 
+            {
+              ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
+              continue;
+            }
           }
-         
         }
 
         bool publish_now = false;
