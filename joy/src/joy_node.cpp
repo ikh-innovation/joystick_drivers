@@ -404,7 +404,7 @@ public:
 
     if (dbus_error_is_set(&err)) 
     {
-      std::cerr << "Error: " << err.message << std::endl;
+      // std::cerr << "Error: " << err.message << std::endl;
       dbus_error_free(&err);
       return "";
     }
@@ -667,11 +667,26 @@ public:
               }
             }
 
-            if (!target_connected) 
-            {
-              ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
-              continue;
-            }
+            // if (!target_connected)
+            // {
+            //   joy_msg.header.stamp = ros::Time().now();
+            //   joy_msg.header.frame_id = joy_dev_.c_str();
+            //   for (size_t i = 0; i < joy_msg.buttons.size(); i++)
+            //   {
+            //     joy_msg.buttons[i] = 0.0;
+            //   }
+            //   for (size_t i = 0; i < joy_msg.axes.size(); i++)
+            //   {
+            //     joy_msg.axes[i] = 0.0;
+            //   }
+            //   pub_.publish(joy_msg);
+            // }
+          }
+
+          if (!target_connected) 
+          {
+            ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
+            continue;
           }
         }
 
