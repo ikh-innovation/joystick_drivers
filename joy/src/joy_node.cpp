@@ -685,7 +685,7 @@ public:
 
           if (!target_connected) 
           {
-            ROS_ERROR_THROTTLE(5, "Bluetooth controller is not connected.");
+            ROS_ERROR_THROTTLE(10, "Bluetooth controller is not connected.");
             continue;
           }
         }
