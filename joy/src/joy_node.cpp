@@ -527,10 +527,11 @@ public:
     // Big while loop opens, publishes
     while (nh_.ok())
     {
+      
       open_ = false;
       diagnostic_.force_update();
       bool first_fault = true;
-      while (true)
+      while (nh_.ok())
       {
         ros::spinOnce();
         if (!nh_.ok())
@@ -558,7 +559,7 @@ public:
           ROS_ERROR("Couldn't open joystick %s. Will retry every second.", joy_dev_.c_str());
           first_fault = false;
         }
-        sleep(1.0);
+        ros::Duration(1.0).sleep();
         diagnostic_.update();
       }
 
@@ -686,6 +687,7 @@ public:
           if (!target_connected) 
           {
             ROS_ERROR_THROTTLE(10, "Bluetooth controller is not connected.");
+            ros::Duration(1.0).sleep();
             continue;
           }
         }
